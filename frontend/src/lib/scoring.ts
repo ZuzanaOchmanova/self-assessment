@@ -1,34 +1,44 @@
-// frontend/src/lib/scoring.ts
-import { PARTS, STAGE_BANDS } from "../content/assessment";
-import type { PartId } from "../content/assessment";
+import type { AnswersMap, Part } from "../types";
 
-export type AnswersMap = Record<string, 0 | 1 | 2 | 3>;
+export type PartScore = {
+  partId: Part["id"];
+  raw: number;
+  max: number;
+  scaled0to15: number;
+  weight: number;
+  contribution: number;
+};
 
-export function scorePart(partId: PartId, answers: AnswersMap) {
-  const part = PARTS.find(p => p.id === partId)!;
-  const raw = part.questions.reduce((sum, q) => {
+export function scorePart(part: Part, answers: AnswersMap): PartScore {
+  let raw = 0;
+  let max = 0;
+
+  for (const q of part.questions) {
     const v = answers[q.id] ?? 0;
-    return sum + v * q.weight;
-  }, 0);
-  return { part, raw };
+    raw += v * q.weight;
+    max += 3 * q.weight;
+  }
+
+  const scaled0to15 = max > 0 ? (raw / max) * 15 : 0;
+  const contribution = scaled0to15 * part.weight;
+
+  return { partId: part.id, raw, max, scaled0to15, weight: part.weight, contribution };
 }
 
-export function stageFromRaw(raw: number) {
-  const band = STAGE_BANDS.find(b => raw >= b.min && raw <= b.max) ?? STAGE_BANDS[0];
-  return band.stage;
-}
+export function scoreOverall(parts: Part[], answers: AnswersMap) {
+  const partScores = parts.map((p) => scorePart(p, answers));
+  const overall0to15 = partScores.reduce((s, p) => s + p.contribution, 0);
 
-export function scoreOverall(rawByPartId: Record<PartId, number>) {
-  // Normalize each part to 0..15, then weight by part.weight
-  const scaled = PARTS.map(p => {
-    const max = p.questions.reduce((m, q) => m + 3 * q.weight, 0);
-    const raw = rawByPartId[p.id] ?? 0;
-    const scaledTo15 = max > 0 ? (raw / max) * 15 : 0;
-    return scaledTo15 * p.weight;
-  });
+  // Stage mapping based on PDF spec
+  let stage: number;
+  if (overall0to15 === 0) stage = 0;
+  else if (overall0to15 <= 2) stage = 1;
+  else if (overall0to15 <= 5) stage = 2;
+  else if (overall0to15 <= 8) stage = 3;
+  else if (overall0to15 <= 11) stage = 4;
+  else if (overall0to15 <= 13) stage = 5;
+  else stage = 6;
 
-  const overall0to15 = scaled.reduce((a, b) => a + b, 0);
-  const band = STAGE_BANDS.find(b => overall0to15 >= b.min && overall0to15 <= b.max) ?? STAGE_BANDS[0];
-  return { overall0to15, stage: band.stage };
+  return { overall0to15, stage, partScores };
 }
 

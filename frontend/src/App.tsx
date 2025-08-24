@@ -1,19 +1,34 @@
 import { useMemo, useState } from "react";
 import QuestionCard from "./components/QuestionCard";
-import { PARTS, OVERALL_RECS_BY_STAGE, type PartId } from "./content/assessment";
-import { scorePart, scoreOverall, type AnswersMap } from "./lib/scoring";
+
+import { PARTS, OVERALL_RECS_BY_STAGE } from "./content/assessment";
+
+import type { AnswersMap, PartId } from "./types";
+import { scorePart, scoreOverall } from "./lib/scoring";
 
 // Show debug details only when the URL includes ?debug=1
 const showDebug = new URLSearchParams(window.location.search).has("debug");
 
-// Your brand colors (already used elsewhere)
+// Brand colors
 const COLOR_PROGRESS = "#D100D1";
-const COLOR_PROGRESS_BG = "#E5E5E5"; // a bit darker than #EDEDED so the bar is visible
+const COLOR_PROGRESS_BG = "#E5E5E5"; // slightly darker than #EDEDED so the bar is visible
+
+// Stage names (0..6) — aligns with your ranges
+const STAGE_NAMES: Record<number, string> = {
+  0: "No digitalization",
+  1: "Spreadsheets & PPT",
+  2: "Centralization & Dashboards",
+  3: "Automated Pipelines & Warehouse",
+  4: "Real-Time & Governed Platforms",
+  5: "Automated Reporting & Alerts",
+  6: "Advanced ML/AI Integration"
+};
 
 type FlatQ = {
   partId: PartId;
   id: string;
   prompt: string;
+  description?: string;      
   weight: number;
   answers: { label: string; value: 0 | 1 | 2 | 3 }[];
 };
@@ -23,10 +38,12 @@ const FLAT: FlatQ[] = PARTS.flatMap((p) =>
     partId: p.id,
     id: q.id,
     prompt: q.prompt,
+    description: q.description,     
     weight: q.weight,
     answers: q.answers
   }))
 );
+
 
 export default function App() {
   const [index, setIndex] = useState(0);
@@ -45,7 +62,7 @@ export default function App() {
       setAnswers(nextAnswers);
       setDone(true);
 
-      // Optional: send a minimal payload to the backend (you can extend later)
+      // Optional: minimal payload to backend
       fetch("/api/SubmitResult", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -66,7 +83,7 @@ export default function App() {
 
     // raw scores by part
     const rawByPartId = PARTS.reduce((acc, p) => {
-      const { raw } = scorePart(p.id, answers);
+      const { raw } = scorePart(p, answers);
       acc[p.id] = raw;
       return acc;
     }, {} as Record<PartId, number>);
@@ -89,7 +106,7 @@ export default function App() {
       contributionByPartId[p.id] = scaled15 * p.weight;
     });
 
-    const overall = scoreOverall(rawByPartId);
+    const overall = scoreOverall(PARTS, answers);
 
     // Pretty rows for debug
     const tableRows = PARTS.map((p) => ({
@@ -111,30 +128,41 @@ export default function App() {
       );
     }
 
-    return { rawByPartId, maxByPartId, scaled15ByPartId, contributionByPartId, overall, tableRows };
+    return {
+      rawByPartId,
+      maxByPartId,
+      scaled15ByPartId,
+      contributionByPartId,
+      overall,
+      tableRows
+    };
   }, [done, answers]);
 
-  // When finished, show the overall stage + optional debug panel
+  // Finished view
   if (done && results) {
-const stage = results.overall.stage;
-const rec = OVERALL_RECS_BY_STAGE[
-  stage as keyof typeof OVERALL_RECS_BY_STAGE
-] as string | { message: string };
+    const stage = results.overall.stage; // 0..6
+    const stageName = STAGE_NAMES[stage] ?? "Unknown stage";
+    const rec = OVERALL_RECS_BY_STAGE[stage];
 
-return (
-  <div style={{ maxWidth: 680, margin: "72px auto", padding: 24 }}>
-    <div style={{ fontSize: 48, fontWeight: 800, color: "#592C89" }}>
-      {stage}
-    </div>
-    <p style={{ marginTop: 8, color: "#0A0A0A" }}>
-      Overall score (0..15): <strong>{results.overall.overall0to15.toFixed(2)}</strong>
-    </p>
+    return (
+      <div style={{ maxWidth: 680, margin: "72px auto", padding: 24 }}>
+        {/* Stage heading: "Stage X: Name" */}
+        <div style={{ fontSize: 36, fontWeight: 800, color: "#592C89" }}>
+          {`Stage ${stage}: ${stageName}`}
+        </div>
 
-    {rec && (
-      <p style={{ marginTop: 16, color: "#0A0A0A" }}>
-        {typeof rec === "string" ? rec : rec.message}
-      </p>
-    )}
+        {/* Overall score below */}
+        <p style={{ marginTop: 12, color: "#0A0A0A" }}>
+          Overall score:{" "}
+          <strong>{results.overall.overall0to15.toFixed(2)}</strong>
+        </p>
+
+        {/* Recommendation paragraph */}
+        {rec && (
+          <p style={{ marginTop: 12, color: "#0A0A0A" }}>
+            {rec}
+          </p>
+        )}
 
         {/* Debug panel (only with ?debug=1) */}
         {showDebug && (
@@ -213,18 +241,19 @@ return (
         />
       </div>
 
-      {/* One question at a time */}
-      <QuestionCard
-        question={{
-          id: FLAT[index].id,
-          prompt: FLAT[index].prompt,
-          weight: FLAT[index].weight,
-          answers: FLAT[index].answers
-        }}
-        onAnswer={onAnswer}
-        index={index}
-        total={total}
-      />
+    {/* One question at a time */}
+<QuestionCard
+  question={{
+    id: FLAT[index].id,
+    prompt: FLAT[index].prompt,
+    description: FLAT[index].description, 
+    weight: FLAT[index].weight,
+    answers: FLAT[index].answers
+  }}
+  onAnswer={onAnswer}
+  index={index}
+  total={total}
+/>
     </div>
   );
 }

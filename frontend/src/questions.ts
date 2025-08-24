@@ -9,7 +9,8 @@ export const QUESTIONS: Question[] = [
       { label: "A little", value: 1 },
       { label: "Comfortable", value: 2 },
       { label: "Power user", value: 3 }
-    ]
+    ],
+    weight: 1     
   },
   {
     id: "q2",
@@ -19,7 +20,8 @@ export const QUESTIONS: Question[] = [
       { label: "Some standards", value: 1 },
       { label: "Mostly standardized", value: 2 },
       { label: "Fully standardized", value: 3 }
-    ]
+    ],
+    weight: 1     
   },
   {
     id: "q3",
@@ -29,6 +31,7 @@ export const QUESTIONS: Question[] = [
       { label: "Some structure", value: 1 },
       { label: "Well structured", value: 2 },
       { label: "Centralized & governed", value: 3 }
-    ]
+    ],
+    weight: 1      
   }
 ];

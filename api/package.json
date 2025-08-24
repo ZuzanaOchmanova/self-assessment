@@ -2,6 +2,7 @@
   "name": "self-assessment-api",
   "version": "0.0.1",
   "private": true,
+  "engines": { "node": "20.x" },
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p .",

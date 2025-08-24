@@ -1,63 +1,109 @@
 import { useMemo, useState } from "react";
 import QuestionCard from "./components/QuestionCard";
-import { QUESTIONS } from "./questions";
+import { PARTS, OVERALL_RECS_BY_STAGE, type PartId } from "./content/assessment";
+import { scorePart, scoreOverall, type AnswersMap } from "./lib/scoring";
 
-function computeTier(total: number) {
-  if (total <= 2) return { tier: "Starter", message: "You're at the beginning—focus on awareness and small wins." };
-  if (total <= 5) return { tier: "Emerging", message: "Great! Build consistency and standardize a few use cases." };
-  if (total <= 7) return { tier: "Mature", message: "You’re close—scale practices and measure impact." };
-  return { tier: "Leader", message: "Excellent! Double down on governance and ROI tracking." };
-}
+// Flatten all questions so we can keep the one-question-at-a-time flow
+type FlatQ = {
+  partId: PartId;
+  id: string;
+  prompt: string;
+  weight: number; // <-- add this
+  answers: { label: string; value: 0 | 1 | 2 | 3 }[];
+};
+
+const FLAT: FlatQ[] = PARTS.flatMap((p) =>
+  p.questions.map((q) => ({
+    partId: p.id,
+    id: q.id,
+    prompt: q.prompt,
+    weight: q.weight,     // <-- carry it through
+    answers: q.answers
+  }))
+);
 
 export default function App() {
   const [index, setIndex] = useState(0);
-  const [sum, setSum] = useState(0);
+  const [answers, setAnswers] = useState<AnswersMap>({});
   const [done, setDone] = useState(false);
 
-  const total = QUESTIONS.length;
+  const total = FLAT.length;
   const pct = useMemo(() => Math.round((index / total) * 100), [index, total]);
 
-  function onAnswer(value: number) {
-    const nextSum = sum + value;
+  function onAnswer(value: 0 | 1 | 2 | 3) {
+    const q = FLAT[index];
+    const nextAnswers: AnswersMap = { ...answers, [q.id]: value };
+
     const nextIndex = index + 1;
     if (nextIndex >= total) {
-      setSum(nextSum);
+      setAnswers(nextAnswers);
       setDone(true);
-      // Send to backend (optional)
+
+      // Optional: send to backend (now with the answers map)
       fetch("/api/SubmitResult", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ total: nextSum, timestamp: new Date().toISOString() })
+        body: JSON.stringify({
+          answers: nextAnswers,
+          timestamp: new Date().toISOString()
+        })
       }).catch(() => {});
     } else {
-      setSum(nextSum);
+      setAnswers(nextAnswers);
       setIndex(nextIndex);
     }
   }
 
-  if (done) {
-    const { tier, message } = computeTier(sum);
+  // When done, compute per-part + overall scores
+  const results = useMemo(() => {
+    if (!done) return null;
+
+    const rawByPartId = PARTS.reduce((acc, p) => {
+      const { raw } = scorePart(p.id, answers);
+      acc[p.id] = raw;
+      return acc;
+    }, {} as Record<PartId, number>);
+
+    const overall = scoreOverall(rawByPartId);
+    return { rawByPartId, overall };
+  }, [done, answers]);
+
+  if (done && results) {
+    const stage = results.overall.stage;
+    const message = OVERALL_RECS_BY_STAGE[stage] ?? "";
+
     return (
       <div style={{ maxWidth: 680, margin: "72px auto", padding: 24 }}>
-        <div style={{ fontSize: 48, fontWeight: 800, color: "var(--question)" }}>{tier}</div>
-        <p style={{ marginTop: 8, fontSize: 18 }}>Your score: <strong>{sum}</strong></p>
-        <p style={{ marginTop: 16, fontSize: 16 }}>{message}</p>
+        <div style={{ fontSize: 48, fontWeight: 800, color: "#592C89" }}>
+          Overall Stage {stage}
+        </div>
+        <p style={{ marginTop: 8, color: "#0A0A0A" }}>{message}</p>
+
+        {/* Temporary per-part debug (keeps design simple for now) */}
+        <div style={{ marginTop: 24 }}>
+          {PARTS.map((p) => (
+            <div key={p.id} style={{ marginBottom: 8 }}>
+              <strong>{p.title}:</strong> raw {results.rawByPartId[p.id].toFixed(2)}
+            </div>
+          ))}
+        </div>
+
         <button
           style={{
             marginTop: 24,
-            padding: "14px 24px",
-            borderRadius: 8,
-            border: "none",
-            cursor: "pointer",
-            background: "var(--brand)",
+            padding: "12px 16px",
+            borderRadius: 12,
+            border: "1px solid #ddd",
+            background: "#D100D1",
             color: "white",
-            fontSize: 16,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.15)"
+            fontWeight: 700,
+            cursor: "pointer"
           }}
-          onClick={() => { setIndex(0); setSum(0); setDone(false); }}
+          onClick={() => {
+            setIndex(0);
+            setAnswers({});
+            setDone(false);
+          }}
         >
           Restart
         </button>
@@ -65,26 +111,32 @@ export default function App() {
     );
   }
 
+  // Question view (unchanged style; just reading from FLAT)
   return (
     <div>
-      {/* Progress bar */}
       <div style={{ height: 4, background: "#eee" }}>
         <div
           style={{
             width: `${pct}%`,
             height: 4,
-            background: "var(--brand)",
+            background: "#D100D1",
             transition: "width .2s"
           }}
         />
       </div>
 
-      <QuestionCard
-        question={QUESTIONS[index]}
-        onAnswer={onAnswer}
-        index={index}
-        total={total}
-      />
+   <QuestionCard
+  question={{
+    id: FLAT[index].id,
+    prompt: FLAT[index].prompt,
+    weight: FLAT[index].weight,   // <-- pass weight so it matches the type
+    answers: FLAT[index].answers
+  }}
+  onAnswer={onAnswer}
+  index={index}
+  total={total}
+/>
     </div>
   );
 }
+

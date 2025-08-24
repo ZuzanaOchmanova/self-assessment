@@ -1,8 +1,8 @@
-import type { Question } from "../types";
+import type { Question } from "../content/assessment";
 
 type Props = {
   question: Question;
-  onAnswer: (value: number) => void;
+  onAnswer: (value: 0 | 1 | 2 | 3) => void; // narrower type than number
   index: number;
   total: number;
 };

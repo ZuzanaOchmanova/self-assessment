@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Self-Assessment</title>
+
+    <!-- League Spartan font -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Brand colors + global defaults -->
+    <style>
+      :root {
+        --brand: #d100d1; /* Primary brand color */
+        --question: #592c89; /* Question heading color */
+        --text: #0a0a0a; /* Default text */
+        --bg: #ededed; /* Page background */
+      }
+
+      html,
+      body,
+      #root {
+        height: 100%;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "League Spartan", system-ui, -apple-system, Segoe UI,
+          Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

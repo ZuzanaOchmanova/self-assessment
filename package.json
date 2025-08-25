@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "dev:fe": "cd frontend && npm run dev",
+    "dev:api": "cd api && npm start",
+    "dev:fe-api": "concurrently -n FE,API -c magenta,cyan \"npm:dev:fe\" \"npm:dev:api\"",
+    "dev:swa": "wait-on tcp:5173 tcp:7071 && swa start http://localhost:5173 --api-location http://localhost:7071",
+    "dev": "concurrently -n FEAPI,SWA -c yellow,green \"npm run dev:fe-api\" \"npm run dev:swa\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^8.0.4"
+  }
+}

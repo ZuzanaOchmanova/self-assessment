@@ -2,7 +2,9 @@
   "name": "self-assessment-api",
   "version": "0.0.1",
   "private": true,
-  "engines": { "node": "20.x" },
+  "engines": {
+    "node": "20.x"
+  },
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p .",
@@ -11,11 +13,10 @@
   },
   "dependencies": {
     "@azure/functions": "^4.5.0",
-    "mssql": "^10.9.3"
+    "mssql": "^10.0.4"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
     "typescript": "^5.5.4"
   }
 }
-

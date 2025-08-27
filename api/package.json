@@ -3,17 +3,19 @@
   "version": "0.0.1",
   "private": true,
   "engines": { "node": "20.x" },
-  "main": "dist/src/index.js",
+  "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p .",
-    "start": "func start --typescript",
+    "start": "npm run build && func start",
     "watch": "tsc -p . -w"
   },
   "dependencies": {
-    "@azure/functions": "^4.5.0"
+    "@azure/functions": "^4.5.0",
+    "mssql": "^10.9.3"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
-    "@types/node": "^20.14.9"
+    "@types/node": "^20.14.9",
+    "typescript": "^5.5.4"
   }
 }
+

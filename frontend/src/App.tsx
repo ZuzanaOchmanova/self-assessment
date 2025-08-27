@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import QuestionCard from "./components/QuestionCard";
 import { createResultsPdf } from "./lib/pdf";
 
@@ -30,6 +30,14 @@ const STAGE_NAMES: Record<number, string> = {
   6: "Advanced ML/AI Integration",
 };
 
+// If you know your concrete PartIds, list them here to get strong typing:
+const PID = {
+  dataCapture: "dataCapture" as PartId,
+  storInteg: "storInteg" as PartId,
+  analyReport: "analyReport" as PartId,
+  govAuto: "govAuto" as PartId,
+};
+
 type FlatQ = {
   partId: PartId;
   id: string;
@@ -49,6 +57,14 @@ const FLAT: FlatQ[] = PARTS.flatMap((p) =>
     answers: q.answers,
   }))
 );
+
+// Map a 0..15 score to stage 0..6.
+// (Same breakpoints as overall; adjust if your scoring uses a different mapping.)
+function scoreToStage(score0to15: number): number {
+  const bucket = 15 / 6; // 2.5 each
+  const n = Math.round(score0to15 / bucket);
+  return Math.max(0, Math.min(6, n));
+}
 
 export default function App() {
   // Intro gate
@@ -87,16 +103,7 @@ export default function App() {
     if (nextIndex >= total) {
       setAnswers(nextAnswers);
       setDone(true);
-
-      fetch("/api/SubmitResult", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: localStorage.getItem("assessmentEmail") ?? "",
-          answers: nextAnswers,
-          finishedAt: new Date().toISOString(),
-        }),
-      }).catch(() => {});
+      // We POST after results are computed (see useEffect below)
     } else {
       setAnswers(nextAnswers);
       setIndex(nextIndex);
@@ -107,53 +114,103 @@ export default function App() {
   const results = useMemo(() => {
     if (!done) return null;
 
+    // Raw per-part score (weighted)
     const rawByPartId = PARTS.reduce((acc, p) => {
       const { raw } = scorePart(p, answers);
       acc[p.id] = raw;
       return acc;
     }, {} as Record<PartId, number>);
 
+    // Max per-part score (all answers = 3)
     const maxByPartId = PARTS.reduce((acc, p) => {
       const max = p.questions.reduce((m, q) => m + 3 * q.weight, 0);
       acc[p.id] = max;
       return acc;
     }, {} as Record<PartId, number>);
 
-    const scaled15ByPartId: Record<PartId, number> = {} as any;
-    const contributionByPartId: Record<PartId, number> = {} as any;
+    // Scale to 0..15 per part
+    const scaled15ByPartId: Record<string, number> = {};
     PARTS.forEach((p) => {
       const max = maxByPartId[p.id] || 0;
       const raw = rawByPartId[p.id] || 0;
       const scaled15 = max > 0 ? (raw / max) * 15 : 0;
       scaled15ByPartId[p.id] = scaled15;
-      contributionByPartId[p.id] = scaled15 * p.weight;
     });
 
+    // Overall score & stage (uses your existing lib)
     const overall = scoreOverall(PARTS, answers);
 
-    const tableRows = PARTS.map((p) => ({
-      part: p.title,
-      raw: rawByPartId[p.id].toFixed(2),
-      max: maxByPartId[p.id].toFixed(2),
-      scaled0to15: scaled15ByPartId[p.id].toFixed(2),
-      weight: p.weight,
-      contribution: contributionByPartId[p.id].toFixed(2),
-    }));
+    // Derive per-part stage locally
+    const stageByPartId: Record<string, number> = {
+      [PID.dataCapture]: scoreToStage(scaled15ByPartId[PID.dataCapture] ?? 0),
+      [PID.storInteg]: scoreToStage(scaled15ByPartId[PID.storInteg] ?? 0),
+      [PID.analyReport]: scoreToStage(scaled15ByPartId[PID.analyReport] ?? 0),
+      [PID.govAuto]: scoreToStage(scaled15ByPartId[PID.govAuto] ?? 0),
+    };
 
     if (showDebug) {
-      console.table(tableRows);
+      console.table(
+        PARTS.map((p) => ({
+          part: p.title,
+          score0to15: (scaled15ByPartId[p.id] ?? 0).toFixed(2),
+          stage: stageByPartId[p.id],
+        }))
+      );
       console.log("Overall 0..15 =", overall.overall0to15.toFixed(2), "| Stage =", overall.stage);
     }
 
     return {
-      rawByPartId,
-      maxByPartId,
       scaled15ByPartId,
-      contributionByPartId,
-      overall,
-      tableRows,
+      stageByPartId,
+      overall, // { overall0to15, stage, ... }
     };
   }, [done, answers]);
+
+  // POST to API after results exist (and only once per completion)
+  useEffect(() => {
+    if (!done || !results) return;
+
+    const emailStored = localStorage.getItem("assessmentEmail") ?? "";
+    if (!emailStored) return;
+
+    const partScore = results.scaled15ByPartId;
+    const partStage = results.stageByPartId;
+
+    const body = {
+      email: emailStored,
+      overallScore: Number(results.overall.overall0to15.toFixed(2)),
+      overallStage: results.overall.stage,
+
+      dataCaptureScore: Number((partScore[PID.dataCapture] ?? 0).toFixed(2)),
+      dataCaptureStage: partStage[PID.dataCapture] ?? 0,
+
+      storIntegScore: Number((partScore[PID.storInteg] ?? 0).toFixed(2)),
+      storIntegStage: partStage[PID.storInteg] ?? 0,
+
+      analyReportScore: Number((partScore[PID.analyReport] ?? 0).toFixed(2)),
+      analyReportStage: partStage[PID.analyReport] ?? 0,
+
+      govAutoScore: Number((partScore[PID.govAuto] ?? 0).toFixed(2)),
+      govAutoStage: partStage[PID.govAuto] ?? 0,
+    };
+
+    // Wrap in IIFE for async/await
+    (async () => {
+      try {
+        const res = await fetch("/api/SubmitResult", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (showDebug) {
+          console.log("SubmitResult -> status:", res.status, "json:", json);
+        }
+      } catch (e) {
+        if (showDebug) console.error("SubmitResult error:", e);
+      }
+    })();
+  }, [done, results]);
 
   // 1) Intro screen
   if (isIntro) {
@@ -256,41 +313,6 @@ export default function App() {
           </p>
         )}
 
-        {showDebug && (
-          <div
-            style={{
-              marginTop: 24,
-              padding: 16,
-              border: "1px dashed #bbb",
-              borderRadius: 12,
-              background: "#fff",
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Debug (not visible to users)</div>
-            {results.tableRows.map((r) => (
-              <div
-                key={r.part}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "160px repeat(5, auto)",
-                  gap: 8,
-                }}
-              >
-                <div>{r.part}</div>
-                <div>raw: {r.raw}</div>
-                <div>max: {r.max}</div>
-                <div>scaled0..15: {r.scaled0to15}</div>
-                <div>weight: {r.weight}</div>
-                <div>contrib: {r.contribution}</div>
-              </div>
-            ))}
-            <div style={{ marginTop: 8 }}>
-              <strong>Overall 0..15:</strong> {results.overall.overall0to15.toFixed(2)} &nbsp;|&nbsp;
-              <strong>Stage:</strong> {results.overall.stage}
-            </div>
-          </div>
-        )}
-
         {/* Actions */}
         <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
           <button
@@ -302,7 +324,7 @@ export default function App() {
                 recommendation: rec,
                 quick,
                 longterm,
-                tableRows: showDebug ? results.tableRows : [],
+                tableRows: [], // keep debug out of PDF
               });
             }}
             style={{

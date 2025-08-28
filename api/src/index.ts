@@ -4,3 +4,5 @@ import { app } from "@azure/functions";
 import "./functions/SubmitResult";
 import "./functions/WhereAmI";
 import "./functions/PingDb";
+import "./functions/EgressIp";
+

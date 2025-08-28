@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { getPool, sql } from "../shared/db";
+import { randomUUID } from "crypto";
 
 type AssessmentPayload = {
   email: string;
@@ -31,7 +32,9 @@ app.http("SubmitResult", {
   methods: ["POST"],
   authLevel: "anonymous",
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
-    const requestId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    const requestId =
+      typeof randomUUID === "function" ? randomUUID() : `${Date.now()}-${Math.random()}`;
+
     try {
       const payload = (await req.json()) as AssessmentPayload;
       ctx.log("[SubmitResult] requestId:", requestId, "payload:", payload);
@@ -39,7 +42,10 @@ app.http("SubmitResult", {
       const email = payload?.email?.trim();
       if (!email) {
         ctx.warn("[SubmitResult]", requestId, "Missing email");
-        return { status: 400, jsonBody: { ok: false, error: "Missing 'email' in payload.", requestId } };
+        return {
+          status: 400,
+          jsonBody: { ok: false, error: "Missing 'email' in payload.", requestId },
+        };
       }
 
       // Validate numeric fields exist
@@ -58,14 +64,17 @@ app.http("SubmitResult", {
       for (const [k, v] of requiredNums) {
         if (!isNum(v)) {
           ctx.warn("[SubmitResult]", requestId, "Invalid numeric field:", k, "value:", v);
-          return { status: 400, jsonBody: { ok: false, error: `Missing/invalid '${k}'`, requestId } };
+          return {
+            status: 400,
+            jsonBody: { ok: false, error: `Missing/invalid '${k as string}'`, requestId },
+          };
         }
       }
 
       // Server time
       const submittedAt = new Date();
 
-      // Log inputs in one place (easier to copy-run in SSMS later)
+      // Log inputs (handy to copy into SSMS for manual repro)
       ctx.log("[SubmitResult] executing UpsertSelfAssessment", {
         requestId,
         Email: email,
@@ -79,51 +88,66 @@ app.http("SubmitResult", {
         AnalyReportScore: payload.analyReportScore,
         AnalyReportStage: payload.analyReportStage,
         GovAutoScore: payload.govAutoScore,
-        GovAutoStage: payload.govAutoStage
+        GovAutoStage: payload.govAutoStage,
       });
 
       const pool = await getPool();
       ctx.log("[SubmitResult]", requestId, "DB connected");
 
-      const request = pool
+      const r = await pool
         .request()
-        .input("Email",            sql.NVarChar(256), email)
-        .input("SubmittedAt",      sql.DateTime2,     submittedAt)
-
-        .input("OverallScore",     sql.Decimal(5, 2), payload.overallScore)
-        .input("OverallStage",     sql.TinyInt,       payload.overallStage)
-
+        .input("Email", sql.NVarChar(256), email)
+        .input("SubmittedAt", sql.DateTime2, submittedAt)
+        .input("OverallScore", sql.Decimal(5, 2), payload.overallScore)
+        .input("OverallStage", sql.TinyInt, payload.overallStage)
         .input("DataCaptureScore", sql.Decimal(5, 2), payload.dataCaptureScore)
-        .input("DataCaptureStage", sql.TinyInt,       payload.dataCaptureStage)
-
-        .input("StorIntegScore",   sql.Decimal(5, 2), payload.storIntegScore)
-        .input("StorIntegStage",   sql.TinyInt,       payload.storIntegStage)
-
+        .input("DataCaptureStage", sql.TinyInt, payload.dataCaptureStage)
+        .input("StorIntegScore", sql.Decimal(5, 2), payload.storIntegScore)
+        .input("StorIntegStage", sql.TinyInt, payload.storIntegStage)
         .input("AnalyReportScore", sql.Decimal(5, 2), payload.analyReportScore)
-        .input("AnalyReportStage", sql.TinyInt,       payload.analyReportStage)
-
-        .input("GovAutoScore",     sql.Decimal(5, 2), payload.govAutoScore)
-        .input("GovAutoStage",     sql.TinyInt,       payload.govAutoStage);
-
-      const r = await request.execute("dbo.UpsertSelfAssessment");
+        .input("AnalyReportStage", sql.TinyInt, payload.analyReportStage)
+        .input("GovAutoScore", sql.Decimal(5, 2), payload.govAutoScore)
+        .input("GovAutoStage", sql.TinyInt, payload.govAutoStage)
+        .execute("dbo.UpsertSelfAssessment");
 
       // mssql returns rowsAffected as an array (per statement)
-      const affected = Array.isArray(r?.rowsAffected)
-        ? r.rowsAffected.reduce((a, b) => a + b, 0)
-        : (typeof r?.rowsAffected === "number" ? r.rowsAffected : 0);
+      const affected =
+        Array.isArray(r?.rowsAffected)
+          ? r.rowsAffected.reduce((a, b) => a + b, 0)
+          : typeof r?.rowsAffected === "number"
+          ? r.rowsAffected
+          : 0;
 
       ctx.log("[SubmitResult]", requestId, "proc result:", {
         rowsAffected: r?.rowsAffected,
         affectedTotal: affected,
         returnValue: r?.returnValue,
-        output: r?.output
+        output: r?.output,
       });
 
-      // Optional: surface affectedTotal to caller to make it obvious if nothing changed
-      return { status: 201, jsonBody: { ok: true, affected: affected, requestId } };
+      return { status: 201, jsonBody: { ok: true, affected, requestId } };
     } catch (err: any) {
-      ctx.error("[SubmitResult]", requestId, "DB error:", err);
-      return { status: 500, jsonBody: { ok: false, error: String(err?.message ?? err), requestId } };
+      // Pull useful details out of tedious/mssql errors
+      const info = err?.originalError?.info ?? err?.precedingErrors?.[0]?.info;
+      const msg = info?.message ?? err?.message ?? err?.code ?? String(err);
+
+      ctx.error("[SubmitResult]", requestId, { msg, info, err });
+
+      // TEMP: include details in response for diagnostics (remove once stable)
+      return {
+        status: 500,
+        jsonBody: {
+          ok: false,
+          requestId,
+          error: msg,
+          code: err?.code,
+          number: info?.number,
+          state: info?.state,
+          class: info?.class,
+          proc: info?.procName,
+        },
+      };
     }
   },
 });
+

@@ -1,6 +1,6 @@
-import "./functions/SubmitResult";
-import "./functions/PingDb";
-import "./functions/WhereAmI";
+import { app } from "@azure/functions";
 
-// keep the module as a module (no global pollution)
-export {};
+// Ensure every function file is imported so it can call app.http(...)
+import "./functions/SubmitResult";
+import "./functions/WhereAmI";
+import "./functions/PingDb";

@@ -1,29 +1,19 @@
-import { app, InvocationContext } from "@azure/functions";
-import { getPool } from "../shared/db";
+import { app } from "@azure/functions";
 
 app.http("WhereAmI", {
   methods: ["GET"],
   authLevel: "anonymous",
-  handler: async (_req, ctx: InvocationContext) => {
-    try {
-      const pool = await getPool();
-      const rs = await pool.request().query(`
-        SELECT
-            DB_NAME()        AS db,
-            @@SERVERNAME     AS serverName,
-            SUSER_SNAME()    AS suser,
-            SYSTEM_USER      AS systemUser,
-            (SELECT COUNT(*) FROM sys.objects 
-               WHERE name = 'SelfAssessments' AND type = 'U') AS hasSelfAssessmentsTable,
-            (SELECT COUNT(*) FROM sys.objects 
-               WHERE name = 'UpsertSelfAssessment' AND type = 'P') AS hasUpsertProc,
-            (SELECT COUNT(*) FROM dbo.SelfAssessments) AS selfAssessmentRows
-      `);
-
-      return { status: 200, jsonBody: { ok: true, ...rs.recordset?.[0] } };
-    } catch (e: any) {
-      ctx.error("WhereAmI error:", e);
-      return { status: 500, jsonBody: { ok: false, error: String(e?.message ?? e) } };
-    }
-  },
+  handler: async () => {
+    return {
+      status: 200,
+      jsonBody: {
+        env: "local-or-prod",
+        sqlServer: process.env.SQL_SERVER,
+        sqlDb: process.env.SQL_DATABASE,
+        hasConnStr: !!process.env.SQL_CONN,
+      }
+    };
+  }
 });
+
+

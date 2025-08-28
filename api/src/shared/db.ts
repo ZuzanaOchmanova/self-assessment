@@ -1,6 +1,6 @@
-// api/src/shared/db.ts
 import * as sql from "mssql";
 import {
+  ClientSecretCredential,
   ManagedIdentityCredential,
   DefaultAzureCredential,
   ChainedTokenCredential,
@@ -9,9 +9,17 @@ import {
 let poolPromise: Promise<sql.ConnectionPool> | undefined;
 
 function buildCredential() {
-  // Prod: Managed Identity (SWA Standard exposes MI)
+  // Works on SWA: prefer explicit client secret when provided
+  if (process.env.AZURE_TENANT_ID && process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET) {
+    return new ClientSecretCredential(
+      process.env.AZURE_TENANT_ID!,
+      process.env.AZURE_CLIENT_ID!,
+      process.env.AZURE_CLIENT_SECRET!
+    );
+  }
+  // Try MI (works for BYO Functions; harmless otherwise)
   const mi = new ManagedIdentityCredential();
-  // Local/dev: az login, VS Code, etc.
+  // Local dev fallback (az login / VSCode)
   const local = new DefaultAzureCredential();
   return new ChainedTokenCredential(mi, local);
 }
@@ -19,7 +27,7 @@ function buildCredential() {
 async function connectAAD(server: string, database: string) {
   const credential = buildCredential();
   const token = await credential.getToken("https://database.windows.net/.default");
-  if (!token?.token) throw new Error("Failed to get AAD token for SQL.");
+  if (!token?.token) throw new Error("Failed to acquire AAD token for SQL.");
 
   const cfg: sql.config = {
     server,
@@ -36,7 +44,6 @@ async function connectAAD(server: string, database: string) {
 export async function getPool(): Promise<sql.ConnectionPool> {
   if (poolPromise) return poolPromise;
 
-  // Dev override if you ever need it locally
   if (process.env.SQL_CONN) {
     poolPromise = new sql.ConnectionPool(process.env.SQL_CONN).connect();
     return poolPromise;

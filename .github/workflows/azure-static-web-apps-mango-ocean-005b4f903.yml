@@ -1,15 +1,15 @@
 name: Azure Static Web Apps CI/CD
 
+permissions:
+  id-token: write
+  contents: read
+
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches: [main]
-
-permissions:
-  id-token: write
-  contents: read
 
 jobs:
   build_and_deploy_job:
@@ -32,7 +32,7 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Deploy to Azure Static Web Apps
+      - name: Deploy to Azure Static Web Apps (OIDC)
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: upload
@@ -41,17 +41,6 @@ jobs:
           api_location: api
           skip_app_build: true
           skip_api_build: true
-          
-  close_pull_request_job:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Close SWA PR environment
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          action: close
-          app_location: frontend
-          output_location: dist
-          api_location: api
+          # IMPORTANT: do NOT include azure_static_web_apps_api_token in OIDC mode
 
 

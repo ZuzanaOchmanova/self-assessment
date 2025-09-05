@@ -75,8 +75,6 @@ function scoreToStage(score0to15: number): number {
   const n = Math.round(score0to15 / bucket);
   return Math.max(0, Math.min(6, n));
 }
-const clampStage = (n: number) =>
-  (Math.max(0, Math.min(6, Math.round(n))) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
 
 export default function App() {
   // Intro gate

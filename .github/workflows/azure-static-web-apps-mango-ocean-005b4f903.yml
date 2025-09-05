@@ -9,9 +9,9 @@ on:
 
 jobs:
   build_and_deploy_job:
+    # run on pushes, and on PR events except "closed"
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +22,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      # --- Build the Vite app in /frontend ---
+      # Build the Vite app in /frontend
       - name: Install deps
         working-directory: frontend
         run: npm ci
@@ -31,14 +31,28 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      # --- Deploy: point to /frontend and its build output, skip Oryx build ---
-      - name: Deploy
+      # Deploy (GitHub mode – no token needed)
+      - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
-          # In GitHub mode you do NOT need to pass a token.
-          app_location: frontend           # where index.html / vite project lives
-          output_location: dist            # path is relative to app_location
-          api_location: api                # keep if your Azure Functions are in /api
-          skip_app_build: true             # we built above with Vite
-          skip_api_build: true             # set false if you actually need Oryx to build API
+          action: upload                 # <- REQUIRED
+          app_location: frontend         # folder with your Vite app
+          output_location: dist          # folder produced by "npm run build"
+          api_location: api              # your Functions folder (keep if present)
+          skip_app_build: true           # we already built above
+          skip_api_build: true           # set to false if you want Oryx to build API
+
+  close_pull_request_job:
+    # when a PR to main is closed, tell SWA to remove the preview env
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close SWA PR environment
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          action: close                  # <- REQUIRED for PR-close
+          app_location: frontend
+          output_location: dist
+          api_location: api
+
 
